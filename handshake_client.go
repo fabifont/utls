@@ -1161,6 +1161,12 @@ func (c *Conn) verifyServerCertificate(certificates [][]byte) error {
 	echRejected := c.config.EncryptedClientHelloConfigList != nil && !c.echAccepted
 	if echRejected {
 		if c.config.EncryptedClientHelloRejectionVerify != nil {
+			// [UTLS SECTION START]
+			// Record the chain before invoking the callback, so that it can
+			// verify the ECH provider's certificate as documented. crypto/tls
+			// calls it with an empty PeerCertificates; see golang/go#75242.
+			c.peerCertificates = certs
+			// [UTLS SECTION END]
 			if err := c.config.EncryptedClientHelloRejectionVerify(c.connectionStateLocked()); err != nil {
 				c.sendAlert(alertBadCertificate)
 				return err

@@ -3024,6 +3024,46 @@ func TestTLS13ECHRejectionVerifiesPublicName(t *testing.T) {
 	}
 }
 
+// TestTLS13ECHRejectionVerifySeesPeerCertificates checks that
+// EncryptedClientHelloRejectionVerify receives the chain the server presented
+// and the public name it was asked for, so the callback can verify the ECH
+// provider's certificate as its documentation promises. Normal verification is
+// skipped in favour of the callback, so VerifiedChains stays empty. See
+// golang/go#75242.
+func TestTLS13ECHRejectionVerifySeesPeerCertificates(t *testing.T) {
+	for _, tc := range echRejectionSpecs(t) {
+		t.Run(tc.name, func(t *testing.T) {
+			clientConfig, serverConfig, cert := echRejectionConfigs(t)
+			var seen *ConnectionState
+			clientConfig.EncryptedClientHelloRejectionVerify = func(cs ConnectionState) error {
+				seen = &cs
+				return nil
+			}
+
+			err := echRejectionHandshake(t, clientConfig, serverConfig, tc.spec)
+			var echErr *ECHRejectionError
+			if !errors.As(err, &echErr) {
+				t.Fatalf("want *ECHRejectionError, got %T: %v", err, err)
+			}
+			if seen == nil {
+				t.Fatal("EncryptedClientHelloRejectionVerify was not called")
+			}
+			if len(seen.PeerCertificates) != 1 || !seen.PeerCertificates[0].Equal(cert) {
+				t.Fatalf("callback saw %d peer certificates, want the server's certificate", len(seen.PeerCertificates))
+			}
+			if seen.ServerName != "example.golang" {
+				t.Fatalf("callback saw ServerName %q, want the public name %q", seen.ServerName, "example.golang")
+			}
+			if seen.ECHAccepted {
+				t.Fatal("callback saw ECHAccepted set on a rejected ECH")
+			}
+			if len(seen.VerifiedChains) != 0 {
+				t.Fatalf("callback saw %d verified chains, want none", len(seen.VerifiedChains))
+			}
+		})
+	}
+}
+
 // [uTLS SECTION ENDS]
 
 func TestECHTLS12Server(t *testing.T) {
